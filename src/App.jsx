@@ -67,26 +67,39 @@ const TABS = [
 ];
 
 // ─── PIN SCREEN ───────────────────────────────────────────────────────────────
+
 function PinScreen({ onUnlock }) {
   const [pin, setPin] = useState("");
   const [shake, setShake] = useState(false);
   const [attempts, setAttempts] = useState(0);
 
-  const press = (val) => {
-    if (pin.length >= 6) return;
-    const next = pin + val;
-    setPin(next);
-    if (next.length === 6) {
-      if (next === CORRECT_PIN) {
-        setTimeout(() => onUnlock(), 150);
-      } else {
-        setShake(true);
-        setAttempts(a => a + 1);
-        setTimeout(() => { setPin(""); setShake(false); }, 600);
+  const press = useCallback((val) => {
+    setPin(prev => {
+      if (prev.length >= 6) return prev;
+      const next = prev + val;
+      if (next.length === 6) {
+        if (next === CORRECT_PIN) {
+          setTimeout(() => onUnlock(), 150);
+        } else {
+          setShake(true);
+          setAttempts(a => a + 1);
+          setTimeout(() => { setPin(""); setShake(false); }, 600);
+        }
       }
-    }
-  };
-  const del = () => setPin(p => p.slice(0, -1));
+      return next;
+    });
+  }, [onUnlock]);
+
+  const del = useCallback(() => setPin(p => p.slice(0, -1)), []);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key >= "0" && e.key <= "9") press(e.key);
+      else if (e.key === "Backspace") del();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [press, del]);
   const keys = ["1","2","3","4","5","6","7","8","9","","0","⌫"];
 
   return (
