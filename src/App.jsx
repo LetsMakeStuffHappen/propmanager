@@ -537,14 +537,60 @@ function PaymentsTab({ payments, properties, reload }) {
 }
 
 // ─── CONTRACTS / LEASES TAB ───────────────────────────────────────────────────
+
+// Self-contained upload button — each lease card gets its own independent file inputs
+function UploadButton({ contractId, type, currentPath, onDone }) {
+  const inputRef = useRef();
+  const [uploading, setUploading] = useState(false);
+
+  async function handleFile(file) {
+    if (!file) return;
+    setUploading(true);
+    const path = `${contractId}/${type}_${Date.now()}_${file.name}`;
+    const { error } = await supabase.storage.from("lease-documents").upload(path, file, { upsert: true });
+    if (!error) {
+      const col = type === "lease" ? "lease_pdf_path" : "collateral_pdf_path";
+      await supabase.from("contracts").update({ [col]: path }).eq("id", contractId);
+    }
+    setUploading(false);
+    onDone();
+  }
+
+  async function viewFile() {
+    const { data } = supabase.storage.from("lease-documents").getPublicUrl(currentPath);
+    window.open(data.publicUrl, "_blank");
+  }
+
+  const icon = type === "lease" ? "📄" : "🏦";
+  const label = type === "lease" ? "Lease" : "Collateral";
+
+  return (
+    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".pdf,.jpg,.jpeg,.png"
+        style={{ display: "none" }}
+        onChange={e => handleFile(e.target.files[0])}
+      />
+      <button
+        onClick={() => inputRef.current.click()}
+        disabled={uploading}
+        style={btnStyle(currentPath ? "#1a3a2a" : "#1a2a3a", 11)}
+      >
+        {uploading ? "Uploading..." : currentPath ? `${icon} ${label} ✓` : `${icon} Upload ${label}`}
+      </button>
+      {currentPath && (
+        <button onClick={viewFile} style={btnStyle("#1a2020", 11)}>View</button>
+      )}
+    </div>
+  );
+}
+
 function ContractsTab({ contracts, properties, reload }) {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ property_id: "", tenant_name: "", tenant_phone: "", tenant_email: "", monthly_rent: "", start_date: "", end_date: "", notes: "", renewal_option: "" });
   const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [selected, setSelected] = useState(null);
-  const leaseFileRef = useRef();
-  const collateralFileRef = useRef();
 
   async function save() {
     setSaving(true);
@@ -557,25 +603,9 @@ function ContractsTab({ contracts, properties, reload }) {
     reload();
   }
 
-  async function uploadFile(contractId, file, type) {
-    setUploading(true);
-    const path = `${contractId}/${type}_${file.name}`;
-    await supabase.storage.from("lease-documents").upload(path, file, { upsert: true });
-    const col = type === "lease" ? "lease_pdf_path" : "collateral_pdf_path";
-    await supabase.from("contracts").update({ [col]: path }).eq("id", contractId);
-    setUploading(false);
-    reload();
-  }
-
-  async function getFileUrl(path) {
-    const { data } = supabase.storage.from("lease-documents").getPublicUrl(path);
-    window.open(data.publicUrl, "_blank");
-  }
-
   async function del(id) {
     if (!confirm("Delete this lease?")) return;
     await supabase.from("contracts").delete().eq("id", id);
-    setSelected(null);
     reload();
   }
 
@@ -619,7 +649,8 @@ function ContractsTab({ contracts, properties, reload }) {
           const prop = propMap[c.property_id];
           return (
             <div key={c.id} style={{ background: "#161922", borderRadius: 12, border: `1px solid ${expired ? "#3a1a1a" : expiring ? "#2a2010" : "#1e2130"}`, padding: 16 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              {/* Top row: info + action buttons */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 15 }}>{c.tenant_name}</div>
                   <div style={{ color: "#888", fontSize: 12, marginBottom: 4 }}>
@@ -635,30 +666,19 @@ function ContractsTab({ contracts, properties, reload }) {
                   )}
                   <div style={{ color: "#4f7ef7", fontWeight: 600, fontSize: 14, marginTop: 4 }}>{fmt(c.monthly_rent)}/mo</div>
                 </div>
-                <div style={{ display: "flex", gap: 6, flexDirection: "column", alignItems: "flex-end" }}>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={() => { setForm(c); setShowForm(true); }} style={btnStyle("#2a2d3a", 11)}>Edit</button>
-                    <button onClick={() => del(c.id)} style={btnStyle("#3a1a1a", 11)}>Delete</button>
-                  </div>
-                  {/* Document uploads */}
-                  <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
-                    <input type="file" accept=".pdf" ref={leaseFileRef} style={{ display: "none" }} onChange={e => e.target.files[0] && uploadFile(c.id, e.target.files[0], "lease")} />
-                    <button onClick={() => { leaseFileRef.current.click(); }} style={btnStyle("#1a2a3a", 11)}>
-                      {c.lease_pdf_path ? "📄 Lease ✓" : "📄 Upload Lease"}
-                    </button>
-                    {c.lease_pdf_path && <button onClick={() => getFileUrl(c.lease_pdf_path)} style={btnStyle("#1a2020", 11)}>View</button>}
-                  </div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <input type="file" accept=".pdf" ref={collateralFileRef} style={{ display: "none" }} onChange={e => e.target.files[0] && uploadFile(c.id, e.target.files[0], "collateral")} />
-                    <button onClick={() => { collateralFileRef.current.click(); }} style={btnStyle("#1a2a3a", 11)}>
-                      {c.collateral_pdf_path ? "🏦 Collateral ✓" : "🏦 Upload Collateral"}
-                    </button>
-                    {c.collateral_pdf_path && <button onClick={() => getFileUrl(c.collateral_pdf_path)} style={btnStyle("#1a2020", 11)}>View</button>}
-                  </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => { setForm(c); setShowForm(true); }} style={btnStyle("#2a2d3a", 11)}>Edit</button>
+                  <button onClick={() => del(c.id)} style={btnStyle("#3a1a1a", 11)}>Delete</button>
                 </div>
               </div>
-              {c.notes && <div style={{ fontSize: 12, color: "#888", marginTop: 8, paddingTop: 8, borderTop: "1px solid #1e2130" }}>📝 {c.notes}</div>}
-              {uploading && <div style={{ fontSize: 11, color: "#4f7ef7", marginTop: 6 }}>Uploading...</div>}
+
+              {/* Document uploads — full width row below, always visible */}
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #1e2130", display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <UploadButton contractId={c.id} type="lease" currentPath={c.lease_pdf_path} onDone={reload} />
+                <UploadButton contractId={c.id} type="collateral" currentPath={c.collateral_pdf_path} onDone={reload} />
+              </div>
+
+              {c.notes && <div style={{ fontSize: 12, color: "#888", marginTop: 8 }}>📝 {c.notes}</div>}
             </div>
           );
         })}
