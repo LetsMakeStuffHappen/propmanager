@@ -1133,10 +1133,14 @@ function FinancialTab({ properties, payments, expenses, contracts, insurance, mo
 
   const thisYear = new Date().getFullYear().toString();
 
-  async function save(table, blankForm) {
+  async function save(table) {
     setSaving(true);
-    if (form.id) await supabase.from(table).update(form).eq("id", form.id);
-    else await supabase.from(table).insert(form);
+    // Convert empty strings to null (Supabase rejects "" for uuid/numeric fields)
+    const cleaned = Object.fromEntries(
+      Object.entries(form).map(([k, v]) => [k, v === "" ? null : v])
+    );
+    if (cleaned.id) await supabase.from(table).update(cleaned).eq("id", cleaned.id);
+    else await supabase.from(table).insert(cleaned);
     setSaving(false); setShowForm(false); setForm({});
     reload();
   }
